@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fruit Bowl — Gaussian Splat</title>
+<style>
+  :root { --bg:#0b0b0d; --fg:#e8e8ea; --dim:#8a8a94; --panel:#000000b8; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+              font:14px/1.5 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+              overflow:hidden; -webkit-font-smoothing:antialiased; }
+  canvas { display:block; }
+  #hud { position:fixed; top:16px; left:16px; z-index:10; background:var(--panel);
+         padding:12px 14px; border-radius:10px; backdrop-filter:blur(8px);
+         border:1px solid #ffffff14; max-width:calc(100vw - 32px); }
+  #hud h1 { margin:0 0 2px; font-size:14px; font-weight:600; letter-spacing:-0.01em; }
+  #hud p  { margin:0; font-size:12px; color:var(--dim); }
+  #status { position:fixed; bottom:16px; left:16px; z-index:10; background:var(--panel);
+            padding:8px 12px; border-radius:8px; font-size:12px; color:var(--dim);
+            border:1px solid #ffffff14; font-variant-numeric:tabular-nums; }
+  #hint { position:fixed; bottom:16px; right:16px; z-index:10; font-size:12px;
+          color:var(--dim); background:var(--panel); padding:8px 12px;
+          border-radius:8px; border:1px solid #ffffff14; }
+  @media (max-width:640px){ #hint{ display:none; } }
+</style>
+</head>
+<body>
+<div id="hud">
+  <h1>Fruit Bowl</h1>
+  <p>3D Gaussian splat &middot; 260,403 splats &middot; 4.9&nbsp;MB</p>
+</div>
+<div id="status">loading&hellip;</div>
+<div id="hint">drag to orbit &middot; scroll to zoom</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+    "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/2.2.0/spark.module.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+
+const statusEl = document.getElementById("status");
+
+const scene    = new THREE.Scene();
+const camera   = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.01, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+// Spark composites splats into the normal three.js pipeline
+const spark = new SparkRenderer({ renderer });
+scene.add(spark);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.rotateSpeed = 0.6;
+controls.minDistance = 0.4;
+controls.maxDistance = 12;
+
+// COLMAP has no gravity reference, so the capture's world axes are arbitrary
+// and the scene arrives tilted ~35 degrees. UP_IN_SPLAT is the true vertical,
+// measured two independent ways that agreed within 1.6 degrees: a RANSAC plane
+// fit to the tabletop, and the normal of the camera-orbit plane.
+const UP_IN_SPLAT = new THREE.Vector3(-0.0049, -0.8176, -0.5758).normalize();
+
+// Bounding-box centre of the splat data, from the .sog's meta.json
+const DATA_CENTRE = new THREE.Vector3(0.1705, 0.5385, 0.4003);
+
+const splat = new SplatMesh({ url: "./assets/fruitbowl-object.sog" });
+// Rotate the measured up-vector onto +Y, then translate so the scene sits at the origin
+splat.quaternion.setFromUnitVectors(UP_IN_SPLAT, new THREE.Vector3(0, 1, 0));
+splat.position.copy(DATA_CENTRE.clone().applyQuaternion(splat.quaternion).negate());
+scene.add(splat);
+
+const t0 = performance.now();
+let ready = false;
+function onReady(){
+  if (ready) return;
+  ready = true;
+  statusEl.textContent = `loaded in ${((performance.now()-t0)/1000).toFixed(1)}s`;
+  setTimeout(() => { statusEl.style.opacity = "0.45"; }, 2500);
+}
+setTimeout(onReady, 3000);
+
+camera.position.set(1.38, -0.30, 2.39);
+controls.target.set(0.22, -0.88, 0.12);
+controls.update();
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
+
+window.__scene = { scene, camera, controls, splat, THREE };
+</script>
+</body>
+</html>

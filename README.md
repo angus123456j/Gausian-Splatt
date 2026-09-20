@@ -8,11 +8,30 @@ Two views, switchable in the UI:
 | View | Asset | Splats | Size |
 |---|---|---|---|
 | Bowl only | `assets/fruitbowl-object.sog` | 260,403 | 4.9 MB |
-| Full room | `assets/fruitbowl-web.sog` | 683,888 | 10 MB |
+| Full room | `assets/fruitbowl-room.sog` | 1,605,739 | 22 MB |
 
 Both share the same coordinate frame and the same upright correction; only
 the crop radius and the framing differ. Assets load lazily — the room scene
 is only fetched if you switch to it.
+
+### Crop radius matters
+
+The room view was first built with a sphere of radius 12 around the bowl,
+which looked fine head-on but left large black voids when orbiting: the
+kitchen's walls and far surfaces sit between r=12 and r=16, so that crop
+sliced straight through the room shell.
+
+```
+ radius   splats inside   % of scene
+      3        274,767       15.2%
+      6        296,819       16.4%
+     12        921,731       51.0%   <- old crop cut here
+     16      1,556,044       86.1%
+     20      1,687,098       93.4%   <- current
+```
+
+Radius 20 keeps 93.4% of the scene. Black in a splat render means no
+splats — either cropped away, or never observed by any camera.
 
 ## Running locally
 

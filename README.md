@@ -33,6 +33,11 @@ sliced straight through the room shell.
 Radius 20 keeps 93.4% of the scene. Black in a splat render means no
 splats — either cropped away, or never observed by any camera.
 
+> **New to this?** [`docs/PIPELINE.md`](docs/PIPELINE.md) explains the whole
+> pipeline end to end — what's installed and why, how COLMAP and 3DGS training
+> actually work, the compression format, the coordinate-system pitfalls, and
+> how to uninstall everything.
+
 ## Running locally
 
 No build step. It's a static page.

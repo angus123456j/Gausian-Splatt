@@ -5,33 +5,40 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Fruit Bowl — Gaussian Splat</title>
 <style>
-  :root { --bg:#0b0b0d; --fg:#e8e8ea; --dim:#8a8a94; --panel:#000000b8; }
+  :root { --bg:#0b0b0d; --fg:#e8e8ea; --dim:#8a8a94; --panel:#000000b8; --line:#ffffff14; }
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
               font:14px/1.5 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;
               overflow:hidden; -webkit-font-smoothing:antialiased; }
   canvas { display:block; }
-  #hud { position:fixed; top:16px; left:16px; z-index:10; background:var(--panel);
-         padding:12px 14px; border-radius:10px; backdrop-filter:blur(8px);
-         border:1px solid #ffffff14; max-width:calc(100vw - 32px); }
+  .panel { position:fixed; z-index:10; background:var(--panel); border:1px solid var(--line);
+           border-radius:10px; backdrop-filter:blur(8px); }
+  #hud { top:16px; left:16px; padding:12px 14px; max-width:calc(100vw - 32px); }
   #hud h1 { margin:0 0 2px; font-size:14px; font-weight:600; letter-spacing:-0.01em; }
-  #hud p  { margin:0; font-size:12px; color:var(--dim); }
-  #status { position:fixed; bottom:16px; left:16px; z-index:10; background:var(--panel);
-            padding:8px 12px; border-radius:8px; font-size:12px; color:var(--dim);
-            border:1px solid #ffffff14; font-variant-numeric:tabular-nums; }
-  #hint { position:fixed; bottom:16px; right:16px; z-index:10; font-size:12px;
-          color:var(--dim); background:var(--panel); padding:8px 12px;
-          border-radius:8px; border:1px solid #ffffff14; }
+  #hud p  { margin:0 0 10px; font-size:12px; color:var(--dim); font-variant-numeric:tabular-nums; }
+  #seg { display:flex; gap:4px; background:#ffffff0f; padding:3px; border-radius:8px; }
+  #seg button { flex:1; font:inherit; font-size:12px; padding:5px 10px; cursor:pointer;
+                background:transparent; color:var(--dim); border:0; border-radius:6px;
+                transition:background .15s, color .15s; white-space:nowrap; }
+  #seg button:hover { color:var(--fg); }
+  #seg button[aria-selected="true"] { background:#ffffff1f; color:var(--fg); font-weight:500; }
+  #status { bottom:16px; left:16px; padding:8px 12px; font-size:12px; color:var(--dim);
+            font-variant-numeric:tabular-nums; transition:opacity .4s; }
+  #hint { bottom:16px; right:16px; padding:8px 12px; font-size:12px; color:var(--dim); }
   @media (max-width:640px){ #hint{ display:none; } }
 </style>
 </head>
 <body>
-<div id="hud">
+<div id="hud" class="panel">
   <h1>Fruit Bowl</h1>
-  <p>3D Gaussian splat &middot; 260,403 splats &middot; 4.9&nbsp;MB</p>
+  <p id="meta">&nbsp;</p>
+  <div id="seg" role="tablist">
+    <button role="tab" data-key="object" aria-selected="true">Bowl only</button>
+    <button role="tab" data-key="room"   aria-selected="false">Full room</button>
+  </div>
 </div>
-<div id="status">loading&hellip;</div>
-<div id="hint">drag to orbit &middot; scroll to zoom</div>
+<div id="status" class="panel">loading&hellip;</div>
+<div id="hint" class="panel">drag to orbit &middot; scroll to zoom</div>
 
 <script type="importmap">
 {
@@ -48,6 +55,31 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 
 const statusEl = document.getElementById("status");
+const metaEl   = document.getElementById("meta");
+
+// COLMAP has no gravity reference, so the capture's world axes are arbitrary and
+// the scene arrives ~35 degrees off vertical. This is the measured true up,
+// from a RANSAC plane fit to the tabletop and the camera-orbit plane normal
+// (the two agreed within 1.6 degrees). Both assets share this frame.
+const UP = new THREE.Vector3(-0.0049, -0.8176, -0.5758).normalize();
+
+// Bounding-box centres come from each .sog's meta.json
+const SCENES = {
+  object: {
+    url:    "./assets/fruitbowl-object.sog",
+    centre: new THREE.Vector3(0.1705, 0.5385, 0.4003),
+    camera: new THREE.Vector3(1.38, -0.30, 2.39),
+    target: new THREE.Vector3(0.22, -0.88, 0.12),
+    label:  "260,403 splats &middot; 4.9 MB &middot; cropped to the bowl"
+  },
+  room: {
+    url:    "./assets/fruitbowl-web.sog",
+    centre: new THREE.Vector3(-0.0458, -0.0273, 0.1267),
+    camera: new THREE.Vector3(3.4, -0.15, 4.4),
+    target: new THREE.Vector3(0.0, -0.95, 0.0),
+    label:  "683,888 splats &middot; 10 MB &middot; the whole kitchen"
+  }
+};
 
 const scene    = new THREE.Scene();
 const camera   = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.01, 1000);
@@ -56,7 +88,6 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 document.body.appendChild(renderer.domElement);
 
-// Spark composites splats into the normal three.js pipeline
 const spark = new SparkRenderer({ renderer });
 scene.add(spark);
 
@@ -65,49 +96,73 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.rotateSpeed = 0.6;
 controls.minDistance = 0.4;
-controls.maxDistance = 12;
+controls.maxDistance = 30;
 
-// COLMAP has no gravity reference, so the capture's world axes are arbitrary
-// and the scene arrives tilted ~35 degrees. UP_IN_SPLAT is the true vertical,
-// measured two independent ways that agreed within 1.6 degrees: a RANSAC plane
-// fit to the tabletop, and the normal of the camera-orbit plane.
-const UP_IN_SPLAT = new THREE.Vector3(-0.0049, -0.8176, -0.5758).normalize();
+let current = null;
+let currentKey = null;
 
-// Bounding-box centre of the splat data, from the .sog's meta.json
-const DATA_CENTRE = new THREE.Vector3(0.1705, 0.5385, 0.4003);
+function show(key){
+  if (key === currentKey) return;
+  const cfg = SCENES[key];
+  currentKey = key;
 
-const splat = new SplatMesh({ url: "./assets/fruitbowl-object.sog" });
-// Rotate the measured up-vector onto +Y, then translate so the scene sits at the origin
-splat.quaternion.setFromUnitVectors(UP_IN_SPLAT, new THREE.Vector3(0, 1, 0));
-splat.position.copy(DATA_CENTRE.clone().applyQuaternion(splat.quaternion).negate());
-scene.add(splat);
+  for (const b of document.querySelectorAll("#seg button"))
+    b.setAttribute("aria-selected", String(b.dataset.key === key));
 
-const t0 = performance.now();
-let ready = false;
-function onReady(){
-  if (ready) return;
-  ready = true;
-  statusEl.textContent = `loaded in ${((performance.now()-t0)/1000).toFixed(1)}s`;
-  setTimeout(() => { statusEl.style.opacity = "0.45"; }, 2500);
+  if (current) { scene.remove(current); current.dispose?.(); current = null; }
+
+  statusEl.style.opacity = "1";
+  statusEl.textContent = "loading…";
+  const t0 = performance.now();
+
+  const splat = new SplatMesh({ url: cfg.url });
+  // Rotate measured up onto +Y, then translate the scene to the origin
+  splat.quaternion.setFromUnitVectors(UP, new THREE.Vector3(0, 1, 0));
+  splat.position.copy(cfg.centre.clone().applyQuaternion(splat.quaternion).negate());
+  scene.add(splat);
+  current = splat;
+
+  // The tuned camera positions assume a landscape viewport. On a narrow or
+  // portrait screen the same distance crops the subject, so dolly back to
+  // preserve roughly the same horizontal framing.
+  const fit = Math.min(Math.max(1, 1.45 / camera.aspect), 1.9);
+  controls.target.copy(cfg.target);
+  camera.position.copy(
+    cfg.target.clone().add(cfg.camera.clone().sub(cfg.target).multiplyScalar(fit))
+  );
+  controls.update();
+  metaEl.innerHTML = cfg.label;
+
+  setTimeout(() => {
+    if (currentKey !== key) return;
+    statusEl.textContent = `loaded in ${((performance.now()-t0)/1000).toFixed(1)}s`;
+    setTimeout(() => { if (currentKey === key) statusEl.style.opacity = "0.45"; }, 2500);
+  }, 3000);
 }
-setTimeout(onReady, 3000);
 
-camera.position.set(1.38, -0.30, 2.39);
-controls.target.set(0.22, -0.88, 0.12);
-controls.update();
+for (const b of document.querySelectorAll("#seg button"))
+  b.addEventListener("click", () => show(b.dataset.key));
 
-addEventListener("resize", () => {
-  camera.aspect = innerWidth/innerHeight;
+show("object");
+
+function resize(){
+  const w = innerWidth, h = innerHeight;
+  camera.aspect = w/h;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
+  renderer.setSize(w, h, true);
+}
+addEventListener("resize", resize);
+// window.resize alone misses container-driven size changes (embeds, split panes,
+// devtools device emulation), which leaves the canvas stuck at its load size.
+new ResizeObserver(resize).observe(document.documentElement);
+resize();
 
 renderer.setAnimationLoop(() => {
   controls.update();
   renderer.render(scene, camera);
 });
 
-window.__scene = { scene, camera, controls, splat, THREE };
+window.__scene = { scene, camera, controls, THREE, show, get splat(){ return current; } };
 </script>
 </body>
 </html>

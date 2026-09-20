@@ -3,7 +3,16 @@
 A 3D Gaussian splat of a fruit bowl, rendered in the browser with
 [Spark](https://github.com/sparkjsdev/spark) on top of THREE.js.
 
-**Live asset:** `assets/fruitbowl-object.sog` — 260,403 splats, 4.9 MB.
+Two views, switchable in the UI:
+
+| View | Asset | Splats | Size |
+|---|---|---|---|
+| Bowl only | `assets/fruitbowl-object.sog` | 260,403 | 4.9 MB |
+| Full room | `assets/fruitbowl-web.sog` | 683,888 | 10 MB |
+
+Both share the same coordinate frame and the same upright correction; only
+the crop radius and the framing differ. Assets load lazily — the room scene
+is only fetched if you switch to it.
 
 ## Running locally
 
@@ -61,6 +70,17 @@ Note that trying to express this as Euler angles and bake it in with
 `splat-transform -r` produced a *worse* tilt, because the tool's Euler
 convention differs from the one assumed. `setFromUnitVectors` sidesteps
 the convention question entirely.
+
+## Responsive behaviour
+
+The camera positions were tuned on a landscape viewport, so `show()` dollies
+the camera back on narrow screens (`fit = clamp(1.45 / aspect, 1, 1.9)`) to
+keep roughly the same horizontal framing on a phone.
+
+Canvas sizing uses a `ResizeObserver` on the document element rather than
+only `window.resize`, because the latter misses container-driven size changes
+— in an embed, a split pane, or device emulation the canvas otherwise stays
+stuck at its load-time size.
 
 ## Asset format
 

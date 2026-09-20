@@ -524,3 +524,33 @@ npm cache clean --force                           # the 1 GB npx cache
 ```
 
 Nothing else was touched.
+
+---
+
+## 12. Running and deploying this repo
+
+It's a static page — no build step, no `node_modules`. Spark and three.js load
+from CDN via an importmap.
+
+```bash
+python3 -m http.server 8790     # then open http://localhost:8790
+```
+
+A server is required; ES module imports and the `.sog` fetch both fail under
+`file://`.
+
+Deployment is Vercel with no framework and no build command — the project root
+is the output directory. The repo is git-linked, so pushing to `main`
+redeploys automatically.
+
+### Regenerating the README screenshots
+
+The renderer is created without `preserveDrawingBuffer`, so `canvas.toDataURL()`
+returns blank. To capture a frame, temporarily add it:
+
+```js
+new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true })
+```
+
+then hide the HUD, draw the canvas into a smaller offscreen canvas, and export
+JPEG. Revert the flag afterwards — it costs performance on every frame.
